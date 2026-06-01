@@ -1,25 +1,263 @@
 # ContractIQ AI — Technical Architecture Document
 
-**Document Version:** 1.0  
+**Document Version:** 1.1  
 **Date:** June 1, 2026  
 **Status:** Draft  
 **Parent Document:** [PROJECT_BLUEPRINT.md](./PROJECT_BLUEPRINT.md)  
-**Stack:** MERN + Microservices + RabbitMQ + MongoDB + Redis + S3
+**Stack (MVP):** MERN + 5 deployable backends + BullMQ + MongoDB + Redis + S3  
+**Stack (target):** MERN + Microservices + RabbitMQ + MongoDB + Redis + S3
+
+> **How to use this document:** **§0** is the authoritative architecture for Phase 1 implementation. **§1–§10** describe the target production architecture to migrate toward without rework of domain boundaries.
 
 ---
 
 ## Table of Contents
 
-1. [Service Boundaries](#1-service-boundaries)
-2. [Database Per Service](#2-database-per-service)
-3. [API Contracts](#3-api-contracts)
-4. [RabbitMQ Event Design](#4-rabbitmq-event-design)
-5. [Queue Names](#5-queue-names)
-6. [DTOs](#6-dtos)
+0. [MVP Architecture (Phase 1)](#0-mvp-architecture-phase-1) — **implement this first**
+1. [Service Boundaries](#1-service-boundaries) — target
+2. [Database Per Service](#2-database-per-service) — target
+3. [API Contracts](#3-api-contracts) — target
+4. [RabbitMQ Event Design](#4-rabbitmq-event-design) — target
+5. [Queue Names](#5-queue-names) — target
+6. [DTOs](#6-dtos) — target
 7. [Folder Structures](#7-folder-structures)
 8. [Shared Libraries](#8-shared-libraries)
 9. [Security Architecture](#9-security-architecture)
 10. [Deployment Strategy](#10-deployment-strategy)
+
+---
+
+## 0. MVP Architecture (Phase 1)
+
+Aligned with [PROJECT_BLUEPRINT.md §6.1](./PROJECT_BLUEPRINT.md#61-mvp-phase-1) (features F-01–F-20). Optimized for **one team, Docker Compose, fast iteration**—same domain model as target, fewer runtimes and moving parts.
+
+### 0.1 MVP Principles
+
+| Principle | MVP choice | Deferred to target (§1–§10) |
+|-----------|------------|------------------------------|
+| Deployable services | **5** backends + gateway + SPA | 9+ services + ingestion worker |
+| Async transport | **BullMQ on Redis** (job queues) | RabbitMQ topic exchanges + outbox |
+| Search | **MongoDB** text index on `contracts` (contract-service) | Dedicated search-service / Elasticsearch |
+| Identity | **identity-service** (auth + tenant in one repo) | Split auth-service + user-service |
+| Text extraction | **Bull worker inside contract-service** | Separate ingestion-worker |
+| Audit | **audit module** (shared lib + `contractiq_audit` DB) | Standalone audit-service consumer |
+| Notifications | **notification-service** (thin: in-app + SMTP) | Full template/outbox dispatcher |
+| OAuth / SSO / billing / playbook | Out of scope | Phase 2+ |
+| Service mesh / K8s | **Docker Compose** (local + small staging) | EKS/AKS + KEDA (§10) |
+| Cross-service auth | Shared **JWT secret** (HS256) | RS256 + JWKS + service tokens (§9) |
+
+### 0.2 MVP Logical Diagram
+
+```
+┌──────────────┐
+│  React SPA   │  apps/web
+└──────┬───────┘
+       │ HTTPS  /api/v1/*
+┌──────▼───────────────────────────────────────────────────┐
+│  API GATEWAY (4000)  JWT · rate limit · proxy · request-id │
+└──┬─────────┬──────────────┬──────────────┬────────────────┘
+   │         │              │              │
+   ▼         ▼              ▼              ▼
+┌──────────┐ ┌──────────────┐ ┌────────────┐ ┌─────────────────┐
+│ identity │ │  contract    │ │    ai      │ │  notification   │
+│ (4001)   │ │  (4002)      │ │  (4003)    │ │  (4004)         │
+│ auth+user│ │ + ingestion  │ │ analysis   │ │ in-app + email  │
+│          │ │   Bull jobs  │ │ + Q&A      │ │                 │
+└────┬─────┘ └──────┬───────┘ └─────┬──────┘ └────────┬────────┘
+     │              │               │                  │
+     └──────────────┴───────┬───────┴──────────────────┘
+                            │
+              ┌─────────────┼─────────────┐
+              ▼             ▼             ▼
+        ┌──────────┐  ┌──────────┐  ┌──────────┐
+        │ MongoDB  │  │  Redis   │  │ S3/MinIO │
+        │ (3 DBs)  │  │Bull+cache│  │  files   │
+        └──────────┘  └──────────┘  └──────────┘
+                            │
+                            ▼
+                    ┌──────────────┐
+                    │ LLM provider │
+                    └──────────────┘
+
+@contractiq/audit-logger  →  contractiq_audit (append-only, all services)
+```
+
+### 0.3 MVP Service Catalog
+
+| Service | Port | Responsibility | Target equivalent |
+|---------|------|----------------|-------------------|
+| **api-gateway** | 4000 | Route proxy, JWT verify, `X-Tenant-ID`, rate limit | Same (§1.2) |
+| **identity-service** | 4001 | Register/login/refresh, orgs, members, invites, profiles | auth + user (§1.2) |
+| **contract-service** | 4002 | Contracts, versions, S3 presign, comments, **text extraction jobs**, **search queries**, dashboard aggregates | contract + ingestion + search (§1.2) |
+| **ai-service** | 4003 | Analysis pipeline, clauses, risk, summary, dates, Q&A (RAG) | ai-service (§1.2) |
+| **notification-service** | 4004 | In-app notifications, transactional email (analysis done / failed / high risk) | notification-service (§1.2) |
+
+**Not deployed in MVP:** `search-service`, `audit-service`, `ingestion-worker`, `billing-service`, `playbook-service`.
+
+### 0.4 MVP Boundary Rules
+
+| Rule | MVP implementation |
+|------|-------------------|
+| Data ownership | 3 MongoDB databases (below); no cross-DB reads |
+| Async work | BullMQ jobs only; job payload includes `tenantId`, `correlationId` |
+| Idempotency | Redis `SET job:{jobId} NX EX 86400` on workers |
+| Tenant isolation | JWT `tid` + `tenantId` on every query; gateway enforces header match |
+| Side effects | After analysis: contract-service updates denormalized risk; notification via **HTTP internal call** or single Bull job (no event bus) |
+| Audit | `@contractiq/audit-logger` writes to `contractiq_audit` synchronously on mutating routes (acceptable MVP latency) |
+
+### 0.5 MVP Upload & Analysis Flow
+
+**Owner:** contract-service (orchestrates); ai-service (analyzes).
+
+| Step | Component | Action |
+|------|-----------|--------|
+| 1 | contract-service | `POST /contracts` → record + presigned S3 URL |
+| 2 | Client | PUT file to S3 |
+| 3 | contract-service | `POST /contracts/:id/complete` → `status: processing` |
+| 4 | contract-service | Enqueue Bull job `ingestion.extract` |
+| 5 | contract-service worker | Extract PDF/DOCX text → save `contract_versions.extractedText` |
+| 6 | contract-service | Enqueue Bull job `ai.analyze` (or HTTP `POST /internal/analysis/run` to ai-service) |
+| 7 | ai-service | LLM pipeline → persist `analyses`, `clauses`, `embedding_chunks` |
+| 8 | ai-service | HTTP callback or Bull `analysis.complete` → contract-service patches `riskScore`, `status: analyzed` |
+| 9 | contract-service | Index title/counterparty/excerpt on contract doc (text index) |
+| 10 | notification-service | `POST /internal/notify` → in-app + email |
+| 11 | All writers | `audit-logger.record(...)` |
+
+**Failure:** Set `status: failed`; notify user; allow `POST /contracts/:id/retry-analysis`.
+
+```
+Client → Gateway → Contract (create/upload complete)
+                        │
+                        ▼ Bull: ingestion.extract
+                   Contract worker (extract text)
+                        │
+                        ▼ Bull: ai.analyze  (or sync HTTP to AI)
+                   AI Service (analyze)
+                        │
+                        ▼ callback / Bull: analysis.complete
+                   Contract (denorm risk, status)
+                        ├→ Notification (HTTP)
+                        └→ Audit (lib)
+```
+
+### 0.6 MVP Databases
+
+Single MongoDB cluster (Atlas M0/M10 or Compose); **3 application databases** + audit:
+
+| Database | Service | Collections |
+|----------|---------|-------------|
+| `contractiq_identity` | identity-service | `users`, `sessions`, `refresh_tokens`, `password_reset_tokens`, `organizations`, `memberships`, `user_profiles`, `invites`, `notification_preferences` |
+| `contractiq_contract` | contract-service | `contracts`, `contract_versions`, `comments` |
+| `contractiq_ai` | ai-service | `analyses`, `clauses`, `embedding_chunks`, `qa_sessions`, `qa_messages`, `ai_usage_logs` |
+| `contractiq_audit` | all (via lib) | `audit_logs` |
+| `contractiq_notification` | notification-service | `notifications`, `email_outbox` (simple: send on insert, no outbox relay) |
+
+**Search:** Compound + text index on `contracts` (e.g. `title`, `counterparty`, `tags`); list endpoint supports `q`, filters—no `search_documents` collection in MVP.
+
+**Shared infra:** Redis (Bull + rate limits), S3/MinIO for files.
+
+### 0.7 MVP API Surface (Gateway Routes)
+
+| Prefix | Service | MVP endpoints (minimum) |
+|--------|---------|-------------------------|
+| `/auth/*` | identity | register, login, refresh, logout, forgot/reset password, me, switch-tenant |
+| `/users/*`, `/organizations/*` | identity | me, org, members, invites, accept invite, notification-preferences |
+| `/contracts/*` | contract | CRUD, complete, versions, download, comments, retry-analysis, export |
+| `/analysis/*` | ai | get analysis, status, clauses, ask, qa-history |
+| `/search` | contract | **proxied to contract-service** `GET /contracts?q=` (same filters) |
+| `/notifications/*` | notification | list, unread-count, mark read |
+| `/audit/*` | identity or contract | **read-only** `GET /audit/logs` (tenant_admin); writes via lib only |
+| `/dashboard/*` | contract | summary KPIs (aggregations on `contracts`) |
+| `/health`, `/ready` | gateway | public |
+
+Full request/response shapes remain in [API_DESIGN.md](./API_DESIGN.md). Phase 2 routes (playbooks, billing, semantic search, bulk) are **not** implemented in MVP.
+
+### 0.8 MVP Async Jobs (BullMQ)
+
+| Queue | Producer | Consumer | Payload (summary) |
+|-------|----------|----------|-------------------|
+| `ingestion.extract` | contract-service | contract-service worker | `tenantId`, `contractId`, `versionId`, `s3Key` |
+| `ai.analyze` | contract-service | ai-service worker | `tenantId`, `contractId`, `versionId`, `extractedTextRef` |
+| `analysis.complete` | ai-service | contract-service worker | `tenantId`, `contractId`, `riskScore`, `riskLevel`, `analysisId` |
+| `notification.send` | any service | notification-service | `userId`, `type`, `payload` |
+
+**Retries:** 3 attempts, exponential backoff (5s, 30s, 120s). Failed jobs → Redis dead-letter list or Bull `failed` set; alert in logs.
+
+**Migration to RabbitMQ:** Map each queue to routing key in §4.5; split identity into two services when team/process scale requires it.
+
+### 0.9 MVP Monorepo Layout
+
+```
+contractiq-ai/
+├── apps/
+│   ├── web/
+│   ├── api-gateway/
+│   ├── identity-service/       # auth + user (MVP)
+│   ├── contract-service/       # + workers/ (ingestion Bull consumer)
+│   ├── ai-service/             # + workers/ (analysis Bull consumer)
+│   └── notification-service/
+├── packages/
+│   ├── shared-types/
+│   ├── shared-utils/
+│   ├── auth-middleware/
+│   ├── audit-logger/           # MVP: sync audit writes
+│   ├── logger/
+│   └── eslint-config/
+├── infrastructure/
+│   └── docker/
+│       └── docker-compose.yml  # mongo, redis, minio, all apps
+├── docs/
+└── scripts/
+```
+
+**Omit in MVP monorepo:** `ingestion-worker`, `search-service`, `audit-service`, `billing-service`, `playbook-service`, `event-contracts`, `mq-client` (add when adopting §4).
+
+### 0.10 MVP Security (Minimum Viable)
+
+| Area | MVP |
+|------|-----|
+| Auth | JWT access (15m) + refresh (7d); **HS256** single secret via env |
+| Passwords | bcrypt cost 12 |
+| Tenant | `X-Tenant-ID` must equal JWT `tid` on `/app/*` routes |
+| RBAC | `viewer` < `business_user` < `legal_reviewer` < `tenant_admin` |
+| Internal calls | Shared `INTERNAL_API_KEY` header (rotate in staging+) |
+| Files | Presigned S3 PUT; MIME allowlist `pdf`, `docx`; max 50 MB |
+| LLM | Tenant rate limit in Redis; log prompt hashes only |
+
+Harden to §9 (RS256, service JWT, mTLS) before production GA.
+
+### 0.11 MVP Deployment
+
+| Environment | Setup |
+|-------------|--------|
+| **Local** | `docker compose up` — MongoDB, Redis, MinIO, 5 services, gateway, web (Vite dev or static) |
+| **Staging** | Single VM or Render/Fly.io; managed MongoDB Atlas + Upstash Redis + S3 |
+| **Production MVP** | 1–2 replicas per service; no K8s required; manual deploy acceptable |
+
+Resource defaults: 256Mi RAM / 0.25 CPU per API; ai-service worker 1Gi / 0.5 CPU.
+
+### 0.12 MVP → Target Migration Path
+
+| MVP component | Target (§) | Trigger to split |
+|---------------|------------|------------------|
+| identity-service | auth + user (§1) | Independent release cadence or team ownership |
+| Bull queues | RabbitMQ + outbox (§4) | >1k analyses/day or multi-region |
+| Contract search | search-service (§1) | Slow queries or semantic search (F-26) |
+| audit-logger lib | audit-service consumer (§1) | Compliance requires isolated audit plane |
+| In-process ingestion worker | ingestion-worker (§1) | OCR (F-23) or CPU-heavy extraction scale-out |
+| HS256 JWT | RS256 + JWKS (§9) | Partner API, SSO, key rotation policy |
+
+Domain collections and API paths stay stable; migrations are **operational splits**, not schema rewrites.
+
+### 0.13 MVP Feature Traceability
+
+| Blueprint F-# | MVP realization |
+|---------------|-----------------|
+| F-01–F-03, F-18, F-20 | identity-service |
+| F-04, F-12, F-13, F-14, F-16, F-19 | contract-service (+ workers) |
+| F-05–F-11 | ai-service |
+| F-15 | notification-service |
+| F-17 | audit-logger → `contractiq_audit` |
 
 ---
 
@@ -39,6 +277,8 @@
 ---
 
 ## 1. Service Boundaries
+
+> **Target architecture.** Phase 1 implementation uses [§0 MVP Architecture](#0-mvp-architecture-phase-1). The sections below define the end-state service topology.
 
 ### 1.1 Bounded Context Map
 
@@ -1231,6 +1471,8 @@ PlanTier: free | pro | enterprise
 
 ## 7. Folder Structures
 
+> **MVP layout:** See [§0.9](#09-mvp-monorepo-layout). The tree below is the **target** monorepo after service splits.
+
 ### 7.1 Monorepo Root
 
 ```
@@ -1238,14 +1480,15 @@ contractiq-ai/
 ├── apps/
 │   ├── web/                          # React SPA
 │   ├── api-gateway/
-│   ├── auth-service/
-│   ├── user-service/
+│   ├── identity-service/             # MVP only (replaces auth + user until split)
+│   ├── auth-service/                 # Target (split from identity)
+│   ├── user-service/                 # Target (split from identity)
 │   ├── contract-service/
 │   ├── ai-service/
-│   ├── search-service/
+│   ├── search-service/               # Target
 │   ├── notification-service/
-│   ├── audit-service/
-│   ├── ingestion-worker/
+│   ├── audit-service/                # Target (MVP: packages/audit-logger)
+│   ├── ingestion-worker/             # Target (MVP: contract-service/workers)
 │   ├── billing-service/              # Phase 2
 │   └── playbook-service/             # Phase 2
 ├── packages/
@@ -1793,15 +2036,17 @@ namespace: contractiq-production
 
 ## Appendix A: Traceability to PROJECT_BLUEPRINT
 
-| Blueprint Section | Covered In |
-|-------------------|------------|
-| Microservice Architecture (§7) | §1 Service Boundaries |
-| Database Design (§10) | §2 Database Per Service |
-| API Gateway Routes (§7.4) | §3 API Contracts |
-| User Flows (§11) | §4 Events, §1.5 Saga |
-| Deployment (§12) | §10 Deployment Strategy |
-| AI Features (§8) | §3.5 AI API, §6.5 AI DTOs |
-| Security NFRs (§4.4) | §9 Security Architecture |
+| Blueprint Section | MVP (implement) | Target |
+|-------------------|-----------------|--------|
+| MVP features F-01–F-20 (§6.1) | **§0** | — |
+| Microservice Architecture (§7) | §0.3 (5 services) | §1 Service Boundaries |
+| Database Design (§10) | §0.6 (4 DBs) | §2 Database Per Service |
+| API Gateway Routes (§7.4) | §0.7 | §3 API Contracts |
+| User Flows (§11) | §0.5 Saga | §4 Events, §1.5 Saga |
+| Deployment (§12) | §0.11 Compose | §10 Deployment Strategy |
+| AI Features (§8) | §0.5, ai-service | §3.5 AI API, §6.5 AI DTOs |
+| Security NFRs (§4.4) | §0.10 | §9 Security Architecture |
+| Phase 2 features (§6.2) | Out of scope | §1–§10 as applicable |
 
 ## Appendix B: Architecture Decision Records (Summary)
 
@@ -1814,12 +2059,16 @@ namespace: contractiq-production
 | ADR-005 | Monorepo with Turborepo | Shared DTOs, coordinated releases |
 | ADR-006 | Presigned S3 upload | Offload file traffic from API servers |
 | ADR-007 | Choreography over orchestration | Looser coupling for upload/analysis saga |
+| ADR-008 | MVP: merged identity-service | Fewer deployables; split when release cadence requires (§0.12) |
+| ADR-009 | MVP: BullMQ before RabbitMQ | Simpler ops; migrate queues per §0.12 |
+| ADR-010 | MVP: audit-logger package | Sync writes acceptable for Phase 1; audit-service in target |
 
 ## Appendix C: Document History
 
 | Version | Date | Author | Changes |
 |---------|------|--------|---------|
 | 1.0 | 2026-06-01 | Principal Architect | Initial technical architecture |
+| 1.1 | 2026-06-01 | Principal Architect | Added §0 simplified MVP architecture (5 services, BullMQ, 4 DBs); marked §1–§10 as target |
 
 ---
 
