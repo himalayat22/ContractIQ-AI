@@ -1,0 +1,3 @@
+# Convenience wrapper — see infrastructure/docker/docker-compose.yml
+include:
+  - path: infrastructure/docker/docker-compose.yml

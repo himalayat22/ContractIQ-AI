@@ -5,7 +5,9 @@ import { fileURLToPath } from 'url';
 import { AppError } from '../utils/AppError.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const uploadDir = path.resolve(__dirname, '../../uploads');
+const uploadDir = process.env.CONTRACT_UPLOAD_DIR
+  ? path.resolve(process.env.CONTRACT_UPLOAD_DIR)
+  : path.resolve(__dirname, '../../uploads');
 
 if (!fs.existsSync(uploadDir)) {
   fs.mkdirSync(uploadDir, { recursive: true });

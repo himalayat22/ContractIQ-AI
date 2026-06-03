@@ -14,7 +14,11 @@
     "test": "turbo run test",
     "typecheck": "turbo run typecheck",
     "clean": "turbo run clean && rimraf node_modules/.cache",
-    "format": "prettier --write \"**/*.{ts,tsx,js,json,md}\" --ignore-path .gitignore"
+    "format": "prettier --write \"**/*.{ts,tsx,js,json,md}\" --ignore-path .gitignore",
+    "docker:up": "docker compose -f infrastructure/docker/docker-compose.yml up --build",
+    "docker:up:detached": "docker compose -f infrastructure/docker/docker-compose.yml up --build -d",
+    "docker:down": "docker compose -f infrastructure/docker/docker-compose.yml down",
+    "docker:logs": "docker compose -f infrastructure/docker/docker-compose.yml logs -f"
   },
   "devDependencies": {
     "prettier": "^3.5.3",

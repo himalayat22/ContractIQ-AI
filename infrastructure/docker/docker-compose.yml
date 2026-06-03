@@ -1,0 +1,133 @@
+# ContractIQ AI — local Docker stack (MongoDB, Redis, backend services)
+# Usage (from repo root):
+#   docker compose -f infrastructure/docker/docker-compose.yml up --build
+# Or: npm run docker:up
+
+name: contractiq
+
+services:
+  mongodb:
+    image: mongo:7.0
+    restart: unless-stopped
+    ports:
+      - "${MONGODB_PORT:-27017}:27017"
+    volumes:
+      - mongodb_data:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.runCommand({ ping: 1 }).ok"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+  identity-service:
+    build:
+      context: ../..
+      dockerfile: apps/identity-service/Dockerfile
+    restart: unless-stopped
+    ports:
+      - "${IDENTITY_SERVICE_PORT:-4001}:4001"
+    env_file:
+      - path: ../../.env
+        required: false
+    environment:
+      NODE_ENV: production
+      IDENTITY_SERVICE_PORT: 4001
+      MONGODB_URI: mongodb://mongodb:27017
+      MONGODB_DB_IDENTITY: ${MONGODB_DB_IDENTITY:-contractiq_identity}
+      REDIS_URL: redis://redis:6379
+      JWT_SECRET: ${JWT_SECRET:-contractiq-docker-dev-jwt-secret-change-me}
+      JWT_ACCESS_EXPIRES_IN: ${JWT_ACCESS_EXPIRES_IN:-900}
+      JWT_REFRESH_EXPIRES_IN: ${JWT_REFRESH_EXPIRES_IN:-604800}
+      WEB_URL: ${WEB_URL:-http://localhost:5173}
+    depends_on:
+      mongodb:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:4001/api/v1/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 40s
+
+  contract-service:
+    build:
+      context: ../..
+      dockerfile: apps/contract-service/Dockerfile
+    restart: unless-stopped
+    ports:
+      - "${CONTRACT_SERVICE_PORT:-4002}:4002"
+    env_file:
+      - path: ../../.env
+        required: false
+    environment:
+      NODE_ENV: production
+      CONTRACT_SERVICE_PORT: 4002
+      MONGODB_URI: mongodb://mongodb:27017
+      MONGODB_DB_CONTRACT: ${MONGODB_DB_CONTRACT:-contractiq_contract}
+      REDIS_URL: redis://redis:6379
+      CONTRACT_UPLOAD_DIR: /app/apps/contract-service/uploads
+      WEB_URL: ${WEB_URL:-http://localhost:5173}
+    volumes:
+      - contract_uploads:/app/apps/contract-service/uploads
+    depends_on:
+      mongodb:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:4002/api/v1/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 40s
+
+  api-gateway:
+    build:
+      context: ../..
+      dockerfile: apps/api-gateway/Dockerfile
+    restart: unless-stopped
+    ports:
+      - "${API_GATEWAY_PORT:-4000}:4000"
+    env_file:
+      - path: ../../.env
+        required: false
+    environment:
+      NODE_ENV: production
+      API_GATEWAY_PORT: 4000
+      IDENTITY_SERVICE_URL: http://identity-service:4001
+      CONTRACT_SERVICE_URL: http://contract-service:4002
+      WEB_URL: ${WEB_URL:-http://localhost:5173}
+      JWT_SECRET: ${JWT_SECRET:-contractiq-docker-dev-jwt-secret-change-me}
+    depends_on:
+      identity-service:
+        condition: service_healthy
+      contract-service:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:4000/api/v1/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 25s
+
+volumes:
+  mongodb_data:
+  redis_data:
+  contract_uploads:
