@@ -4,6 +4,10 @@ import { AppLayout } from '../components/layout/AppLayout'
 import { LoginPage } from '../pages/auth/LoginPage'
 import { RegisterPage } from '../pages/auth/RegisterPage'
 import { DashboardPage } from '../pages/dashboard/DashboardPage'
+import { ContractsListPage } from '../pages/contracts/ContractsListPage'
+import { ContractUploadPage } from '../pages/contracts/ContractUploadPage'
+import { ContractDetailPage } from '../pages/contracts/ContractDetailPage'
+import { AnalysisViewPage } from '../pages/contracts/AnalysisViewPage'
 import { useAuthStore } from '../store/authStore'
 
 function PublicOnlyRoute({ children }) {
@@ -14,6 +18,14 @@ function PublicOnlyRoute({ children }) {
 function ProtectedRoute({ children }) {
   const isAuthenticated = useAuthStore((state) => state.isAuthenticated)
   return isAuthenticated ? children : <Navigate to="/login" replace />
+}
+
+function ProtectedAppPage({ children }) {
+  return (
+    <ProtectedRoute>
+      <AppLayout>{children}</AppLayout>
+    </ProtectedRoute>
+  )
 }
 
 export function AppRouter() {
@@ -39,16 +51,11 @@ export function AppRouter() {
           </PublicOnlyRoute>
         }
       />
-      <Route
-        path="/app/dashboard"
-        element={
-          <ProtectedRoute>
-            <AppLayout>
-              <DashboardPage />
-            </AppLayout>
-          </ProtectedRoute>
-        }
-      />
+      <Route path="/app/dashboard" element={<ProtectedAppPage><DashboardPage /></ProtectedAppPage>} />
+      <Route path="/app/contracts" element={<ProtectedAppPage><ContractsListPage /></ProtectedAppPage>} />
+      <Route path="/app/contracts/upload" element={<ProtectedAppPage><ContractUploadPage /></ProtectedAppPage>} />
+      <Route path="/app/contracts/:id/analysis" element={<ProtectedAppPage><AnalysisViewPage /></ProtectedAppPage>} />
+      <Route path="/app/contracts/:id" element={<ProtectedAppPage><ContractDetailPage /></ProtectedAppPage>} />
       <Route path="/" element={<Navigate to="/login" replace />} />
       <Route path="*" element={<Navigate to="/login" replace />} />
     </Routes>

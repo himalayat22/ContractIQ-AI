@@ -37,6 +37,7 @@ export const getContractParamsSchema = z.object({
 export const listContractsQuerySchema = z.object({
   page: z.coerce.number().int().min(1).default(1),
   limit: z.coerce.number().int().min(1).max(100).default(20),
+  tenantId: z.string().regex(objectIdRegex, 'tenantId must be a valid ObjectId').optional(),
   status: z.enum(['uploading', 'processing', 'analyzed', 'failed']).optional(),
   contractType: z.enum(['nda', 'msa', 'sow', 'employment', 'vendor', 'other']).optional(),
   q: z.string().trim().optional(),

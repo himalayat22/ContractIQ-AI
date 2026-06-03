@@ -4,6 +4,11 @@ import { verifyJwt, validateTenantHeader } from '../middleware/verifyJwt.js';
 export const IDENTITY_SERVICE_URL =
   process.env.IDENTITY_SERVICE_URL ?? 'http://localhost:4001';
 
+export const CONTRACT_SERVICE_URL =
+  process.env.CONTRACT_SERVICE_URL ?? 'http://localhost:4002';
+
+export const AI_SERVICE_URL = process.env.AI_SERVICE_URL ?? 'http://localhost:4003';
+
 /**
  * Public auth routes (PUB / RT) — proxied without gateway JWT check.
  * Paths are relative to `/api/v1/auth`.
@@ -88,4 +93,38 @@ export function registerIdentityProxies(app) {
     },
     identityProxy,
   );
+}
+
+function createServiceProxy(targetUrl) {
+  return createProxyMiddleware({
+    target: targetUrl,
+    changeOrigin: true,
+    on: {
+      proxyReq: (proxyReq, req) => {
+        const requestId = req.headers['x-request-id'] ?? req.id;
+        if (requestId) {
+          proxyReq.setHeader('X-Request-ID', requestId);
+        }
+
+        if (req.headers.authorization) {
+          proxyReq.setHeader('Authorization', req.headers.authorization);
+        }
+
+        if (req.headers['x-tenant-id']) {
+          proxyReq.setHeader('X-Tenant-ID', req.headers['x-tenant-id']);
+        }
+      },
+    },
+  });
+}
+
+/**
+ * Contract + AI service proxies (MVP — SYSTEM_DESIGN §0.7).
+ */
+export function registerServiceProxies(app) {
+  const contractProxy = createServiceProxy(CONTRACT_SERVICE_URL);
+  const aiProxy = createServiceProxy(AI_SERVICE_URL);
+
+  app.use('/api/v1/contracts', verifyJwt, validateTenantHeader, contractProxy);
+  app.use('/api/v1/analysis', verifyJwt, validateTenantHeader, aiProxy);
 }

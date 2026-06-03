@@ -5,7 +5,7 @@ import { randomUUID } from 'crypto';
 import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
-import { registerIdentityProxies, IDENTITY_SERVICE_URL } from './routes/proxy.config.js';
+import { registerIdentityProxies, registerServiceProxies, IDENTITY_SERVICE_URL } from './routes/proxy.config.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 dotenv.config({ path: path.resolve(__dirname, '../../../.env') });
@@ -80,6 +80,7 @@ app.get('/api/v1/ready', async (req, res) => {
 });
 
 registerIdentityProxies(app);
+registerServiceProxies(app);
 
 app.use('/api/v1', (req, res) => {
   res.status(404).json({
@@ -97,4 +98,5 @@ app.listen(PORT, () => {
   console.log(`[api-gateway] Listening on http://localhost:${PORT}`);
   console.log(`[api-gateway] Health: http://localhost:${PORT}/api/v1/health`);
   console.log(`[api-gateway] Proxying identity: ${IDENTITY_SERVICE_URL}`);
+  console.log(`[api-gateway] Proxying contracts + analysis`);
 });
