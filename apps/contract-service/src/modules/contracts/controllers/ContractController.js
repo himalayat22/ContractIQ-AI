@@ -17,8 +17,8 @@ function sendSuccess(res, statusCode, data, req, pagination) {
 }
 
 export class ContractController {
-  constructor(contractService = new ContractService()) {
-    this.contractService = contractService;
+  constructor(contractService) {
+    this.contractService = contractService ?? new ContractService();
   }
 
   upload = async (req, res, next) => {
@@ -58,4 +58,4 @@ export class ContractController {
   };
 }
 
-export default new ContractController();
+export default ContractController;

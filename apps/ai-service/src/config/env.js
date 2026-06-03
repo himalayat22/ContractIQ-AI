@@ -30,11 +30,16 @@ export function getConfig() {
     nodeEnv: process.env.NODE_ENV ?? 'development',
     mongoUri: normalizeEnvString(process.env.MONGODB_URI),
     mongoDbName: normalizeEnvString(process.env.MONGODB_DB_AI) ?? 'contractiq_ai',
+    redisUrl: normalizeEnvString(process.env.REDIS_URL) ?? 'redis://localhost:6379',
+    aiAnalyzeQueueName: normalizeEnvString(process.env.BULL_QUEUE_AI_ANALYZE) ?? 'ai.analyze',
+    analysisCompleteQueueName:
+      normalizeEnvString(process.env.BULL_QUEUE_ANALYSIS_COMPLETE) ?? 'analysis.complete',
     geminiApiKey: normalizeEnvString(process.env.GEMINI_API_KEY),
     geminiModel: normalizeEnvString(process.env.GEMINI_MODEL) ?? 'gemini-2.0-flash',
     geminiTimeoutMs: normalizeEnvInt(process.env.GEMINI_TIMEOUT_MS, 120_000),
     geminiMaxRetries: normalizeEnvInt(process.env.GEMINI_MAX_RETRIES, 3),
     geminiRetryBaseDelayMs: normalizeEnvInt(process.env.GEMINI_RETRY_BASE_DELAY_MS, 1_000),
     geminiMaxContractChars: normalizeEnvInt(process.env.GEMINI_MAX_CONTRACT_CHARS, 120_000),
+    runWorker: process.env.AI_RUN_WORKER !== 'false',
   };
 }

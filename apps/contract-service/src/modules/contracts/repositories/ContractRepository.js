@@ -20,6 +20,39 @@ export class ContractRepository {
     return ContractVersion.findById(id);
   }
 
+  updateVersionIngestion(versionId, fields) {
+    const update = {};
+
+    if (fields.extractedText !== undefined) update.extractedText = fields.extractedText;
+    if (fields.extractedTextLength !== undefined) {
+      update.extractedTextLength = fields.extractedTextLength;
+    }
+    if (fields.pageCount !== undefined) update.pageCount = fields.pageCount;
+    if (fields.ingestionStatus !== undefined) update.ingestionStatus = fields.ingestionStatus;
+    if (fields.ocrUsed !== undefined) update.ocrUsed = fields.ocrUsed;
+
+    return ContractVersion.findByIdAndUpdate(versionId, { $set: update }, { new: true });
+  }
+
+  updateContractStatus(contractId, status) {
+    return Contract.findByIdAndUpdate(contractId, { $set: { status } }, { new: true });
+  }
+
+  updateContractAfterAnalysis(contractId, fields) {
+    const update = {
+      status: fields.status,
+      riskScore: fields.riskScore,
+      riskLevel: fields.riskLevel,
+      keyDates: fields.keyDates ?? [],
+    };
+
+    if (fields.currentAnalysisId) {
+      update.currentAnalysisId = fields.currentAnalysisId;
+    }
+
+    return Contract.findByIdAndUpdate(contractId, { $set: update }, { new: true });
+  }
+
   async list({ page, limit, status, contractType, q, tenantId }) {
     const filter = { deletedAt: null };
 

@@ -50,8 +50,9 @@ function toContractSummary(contract) {
 }
 
 export class ContractService {
-  constructor(contractRepository = new ContractRepository()) {
+  constructor({ contractRepository = new ContractRepository(), enqueueIngestionExtract } = {}) {
     this.contractRepository = contractRepository;
+    this.enqueueIngestionExtract = enqueueIngestionExtract;
   }
 
   async uploadContract(metadata, file) {
@@ -110,7 +111,22 @@ export class ContractService {
     const updated = await this.contractRepository.setCurrentVersion(contract._id, version._id);
     updated.currentVersionId = version;
 
-    return toContractSummary(updated);
+    await this.contractRepository.updateContractStatus(contract._id, 'processing');
+
+    if (this.enqueueIngestionExtract) {
+      await this.enqueueIngestionExtract({
+        tenantId: tenantId.toString(),
+        contractId: contract._id.toString(),
+        versionId: version._id.toString(),
+        storageKey: file.path,
+        userId: createdBy.toString(),
+        correlationId: `upload-${version._id.toString()}`,
+      });
+    }
+
+    const summary = toContractSummary(updated);
+    summary.status = 'processing';
+    return summary;
   }
 
   async listContracts(query) {

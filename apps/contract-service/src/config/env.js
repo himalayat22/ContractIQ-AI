@@ -26,5 +26,15 @@ export function getConfig() {
     mongoUri: normalizeEnvString(process.env.MONGODB_URI),
     mongoDbName: normalizeEnvString(process.env.MONGODB_DB_CONTRACT) ?? 'contractiq_contract',
     uploadDir: normalizeEnvString(process.env.CONTRACT_UPLOAD_DIR),
+    redisUrl: normalizeEnvString(process.env.REDIS_URL) ?? 'redis://localhost:6379',
+    ingestionQueueName:
+      normalizeEnvString(process.env.BULL_QUEUE_INGESTION_EXTRACT) ?? 'ingestion.extract',
+    aiAnalyzeQueueName: normalizeEnvString(process.env.BULL_QUEUE_AI_ANALYZE) ?? 'ai.analyze',
+    analysisCompleteQueueName:
+      normalizeEnvString(process.env.BULL_QUEUE_ANALYSIS_COMPLETE) ?? 'analysis.complete',
+    notificationServiceUrl:
+      normalizeEnvString(process.env.NOTIFICATION_SERVICE_URL) ?? 'http://localhost:4004',
+    internalApiKey: normalizeEnvString(process.env.INTERNAL_API_KEY),
+    runWorker: process.env.CONTRACT_RUN_WORKER !== 'false',
   };
 }

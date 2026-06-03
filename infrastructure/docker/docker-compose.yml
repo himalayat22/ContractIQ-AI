@@ -82,6 +82,11 @@ services:
       MONGODB_URI: mongodb://mongodb:27017
       MONGODB_DB_CONTRACT: ${MONGODB_DB_CONTRACT:-contractiq_contract}
       REDIS_URL: redis://redis:6379
+      BULL_QUEUE_INGESTION_EXTRACT: ${BULL_QUEUE_INGESTION_EXTRACT:-ingestion.extract}
+      BULL_QUEUE_AI_ANALYZE: ${BULL_QUEUE_AI_ANALYZE:-ai.analyze}
+      BULL_QUEUE_ANALYSIS_COMPLETE: ${BULL_QUEUE_ANALYSIS_COMPLETE:-analysis.complete}
+      NOTIFICATION_SERVICE_URL: http://notification-service:4004
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY:-contractiq-docker-internal-api-key}
       CONTRACT_UPLOAD_DIR: /app/apps/contract-service/uploads
       WEB_URL: ${WEB_URL:-http://localhost:5173}
     volumes:
@@ -113,6 +118,9 @@ services:
       AI_SERVICE_PORT: 4003
       MONGODB_URI: mongodb://mongodb:27017
       MONGODB_DB_AI: ${MONGODB_DB_AI:-contractiq_ai}
+      REDIS_URL: redis://redis:6379
+      BULL_QUEUE_AI_ANALYZE: ${BULL_QUEUE_AI_ANALYZE:-ai.analyze}
+      BULL_QUEUE_ANALYSIS_COMPLETE: ${BULL_QUEUE_ANALYSIS_COMPLETE:-analysis.complete}
       GEMINI_API_KEY: ${GEMINI_API_KEY:-}
       GEMINI_MODEL: ${GEMINI_MODEL:-gemini-2.0-flash}
       GEMINI_TIMEOUT_MS: ${GEMINI_TIMEOUT_MS:-120000}
@@ -123,6 +131,8 @@ services:
       WEB_URL: ${WEB_URL:-http://localhost:5173}
     depends_on:
       mongodb:
+        condition: service_healthy
+      redis:
         condition: service_healthy
     healthcheck:
       test: ["CMD", "curl", "-fsS", "http://127.0.0.1:4003/api/v1/health"]

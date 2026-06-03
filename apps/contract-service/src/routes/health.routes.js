@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { getMongoStatus } from '../infrastructure/mongodb/connect.js';
+import { getRedisStatus } from '../infrastructure/redis/connection.js';
 
 const healthRoutes = Router();
 const startTime = Date.now();
@@ -26,13 +27,14 @@ healthRoutes.get('/health', (req, res) => {
 
 healthRoutes.get('/ready', (req, res) => {
   const mongodb = getMongoStatus();
-  const ready = mongodb === 'up';
+  const redis = getRedisStatus();
+  const ready = mongodb === 'up' && redis === 'up';
 
   res.status(ready ? 200 : 503).json({
     success: ready,
     data: {
       status: ready ? 'ready' : 'not_ready',
-      dependencies: { mongodb },
+      dependencies: { mongodb, redis },
     },
     meta: meta(req),
   });

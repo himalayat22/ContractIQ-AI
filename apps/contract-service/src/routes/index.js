@@ -1,10 +1,17 @@
 import { Router } from 'express';
 import healthRoutes from './health.routes.js';
-import contractRoutes from '../modules/contracts/routes/contractRoutes.js';
+import { createContractRoutes } from '../modules/contracts/routes/contractRoutes.js';
 
-const apiRouter = Router();
+/**
+ * @param {{ contractService?: import('../modules/contracts/services/ContractService.js').ContractService }} deps
+ */
+export function createApiRouter({ contractService } = {}) {
+  const apiRouter = Router();
 
-apiRouter.use(healthRoutes);
-apiRouter.use(contractRoutes);
+  apiRouter.use(healthRoutes);
+  apiRouter.use(createContractRoutes({ contractService }));
 
-export default apiRouter;
+  return apiRouter;
+}
+
+export default createApiRouter;
