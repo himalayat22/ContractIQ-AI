@@ -98,6 +98,42 @@ services:
       retries: 5
       start_period: 40s
 
+  notification-service:
+    build:
+      context: ../..
+      dockerfile: apps/notification-service/Dockerfile
+    restart: unless-stopped
+    ports:
+      - "${NOTIFICATION_SERVICE_PORT:-4004}:4004"
+    env_file:
+      - path: ../../.env
+        required: false
+    environment:
+      NODE_ENV: production
+      NOTIFICATION_SERVICE_PORT: 4004
+      MONGODB_URI: mongodb://mongodb:27017
+      MONGODB_DB_NOTIFICATION: ${MONGODB_DB_NOTIFICATION:-contractiq_notification}
+      REDIS_URL: redis://redis:6379
+      BULL_QUEUE_NOTIFICATION_SEND: ${BULL_QUEUE_NOTIFICATION_SEND:-notification.send}
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY:-contractiq-docker-internal-api-key}
+      SMTP_HOST: ${SMTP_HOST:-host.docker.internal}
+      SMTP_PORT: ${SMTP_PORT:-1025}
+      SMTP_SECURE: "false"
+      EMAIL_FROM: ${EMAIL_FROM:-noreply@contractiq.local}
+      EMAIL_FROM_NAME: ${EMAIL_FROM_NAME:-ContractIQ AI}
+      WEB_URL: ${WEB_URL:-http://localhost:5173}
+    depends_on:
+      mongodb:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:4004/api/v1/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 40s
+
   api-gateway:
     build:
       context: ../..
@@ -113,12 +149,15 @@ services:
       API_GATEWAY_PORT: 4000
       IDENTITY_SERVICE_URL: http://identity-service:4001
       CONTRACT_SERVICE_URL: http://contract-service:4002
+      NOTIFICATION_SERVICE_URL: http://notification-service:4004
       WEB_URL: ${WEB_URL:-http://localhost:5173}
       JWT_SECRET: ${JWT_SECRET:-contractiq-docker-dev-jwt-secret-change-me}
     depends_on:
       identity-service:
         condition: service_healthy
       contract-service:
+        condition: service_healthy
+      notification-service:
         condition: service_healthy
     healthcheck:
       test: ["CMD", "curl", "-fsS", "http://127.0.0.1:4000/api/v1/health"]
