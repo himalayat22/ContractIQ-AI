@@ -98,6 +98,39 @@ services:
       retries: 5
       start_period: 40s
 
+  ai-service:
+    build:
+      context: ../..
+      dockerfile: apps/ai-service/Dockerfile
+    restart: unless-stopped
+    ports:
+      - "${AI_SERVICE_PORT:-4003}:4003"
+    env_file:
+      - path: ../../.env
+        required: false
+    environment:
+      NODE_ENV: production
+      AI_SERVICE_PORT: 4003
+      MONGODB_URI: mongodb://mongodb:27017
+      MONGODB_DB_AI: ${MONGODB_DB_AI:-contractiq_ai}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      GEMINI_MODEL: ${GEMINI_MODEL:-gemini-2.0-flash}
+      GEMINI_TIMEOUT_MS: ${GEMINI_TIMEOUT_MS:-120000}
+      GEMINI_MAX_RETRIES: ${GEMINI_MAX_RETRIES:-3}
+      GEMINI_RETRY_BASE_DELAY_MS: ${GEMINI_RETRY_BASE_DELAY_MS:-1000}
+      GEMINI_MAX_CONTRACT_CHARS: ${GEMINI_MAX_CONTRACT_CHARS:-120000}
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY:-contractiq-docker-internal-api-key}
+      WEB_URL: ${WEB_URL:-http://localhost:5173}
+    depends_on:
+      mongodb:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:4003/api/v1/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 40s
+
   notification-service:
     build:
       context: ../..
@@ -149,6 +182,7 @@ services:
       API_GATEWAY_PORT: 4000
       IDENTITY_SERVICE_URL: http://identity-service:4001
       CONTRACT_SERVICE_URL: http://contract-service:4002
+      AI_SERVICE_URL: http://ai-service:4003
       NOTIFICATION_SERVICE_URL: http://notification-service:4004
       WEB_URL: ${WEB_URL:-http://localhost:5173}
       JWT_SECRET: ${JWT_SECRET:-contractiq-docker-dev-jwt-secret-change-me}
@@ -156,6 +190,8 @@ services:
       identity-service:
         condition: service_healthy
       contract-service:
+        condition: service_healthy
+      ai-service:
         condition: service_healthy
       notification-service:
         condition: service_healthy
