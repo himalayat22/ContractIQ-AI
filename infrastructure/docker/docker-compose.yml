@@ -1,25 +1,13 @@
-# ContractIQ AI — local Docker stack (MongoDB, Redis, backend services)
+# ContractIQ AI — local Docker stack (Redis + backend services; MongoDB Atlas via .env)
 # Usage (from repo root):
 #   docker compose -f infrastructure/docker/docker-compose.yml up --build
 # Or: npm run docker:up
+#
+# Requires MONGODB_URI in repo root .env (Atlas). Compose passes it to all services.
 
 name: contractiq
 
 services:
-  mongodb:
-    image: mongo:7.0
-    restart: unless-stopped
-    ports:
-      - "${MONGODB_PORT:-27017}:27017"
-    volumes:
-      - mongodb_data:/data/db
-    healthcheck:
-      test: ["CMD", "mongosh", "--quiet", "--eval", "db.runCommand({ ping: 1 }).ok"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-      start_period: 20s
-
   redis:
     image: redis:7-alpine
     restart: unless-stopped
@@ -47,7 +35,7 @@ services:
     environment:
       NODE_ENV: production
       IDENTITY_SERVICE_PORT: 4001
-      MONGODB_URI: mongodb://mongodb:27017
+      MONGODB_URI: ${MONGODB_URI}
       MONGODB_DB_IDENTITY: ${MONGODB_DB_IDENTITY:-contractiq_identity}
       REDIS_URL: redis://redis:6379
       JWT_SECRET: ${JWT_SECRET:-contractiq-docker-dev-jwt-secret-change-me}
@@ -55,8 +43,6 @@ services:
       JWT_REFRESH_EXPIRES_IN: ${JWT_REFRESH_EXPIRES_IN:-604800}
       WEB_URL: ${WEB_URL:-http://localhost:5173}
     depends_on:
-      mongodb:
-        condition: service_healthy
       redis:
         condition: service_healthy
     healthcheck:
@@ -79,7 +65,7 @@ services:
     environment:
       NODE_ENV: production
       CONTRACT_SERVICE_PORT: 4002
-      MONGODB_URI: mongodb://mongodb:27017
+      MONGODB_URI: ${MONGODB_URI}
       MONGODB_DB_CONTRACT: ${MONGODB_DB_CONTRACT:-contractiq_contract}
       REDIS_URL: redis://redis:6379
       BULL_QUEUE_INGESTION_EXTRACT: ${BULL_QUEUE_INGESTION_EXTRACT:-ingestion.extract}
@@ -92,8 +78,6 @@ services:
     volumes:
       - contract_uploads:/app/apps/contract-service/uploads
     depends_on:
-      mongodb:
-        condition: service_healthy
       redis:
         condition: service_healthy
     healthcheck:
@@ -116,7 +100,7 @@ services:
     environment:
       NODE_ENV: production
       AI_SERVICE_PORT: 4003
-      MONGODB_URI: mongodb://mongodb:27017
+      MONGODB_URI: ${MONGODB_URI}
       MONGODB_DB_AI: ${MONGODB_DB_AI:-contractiq_ai}
       REDIS_URL: redis://redis:6379
       BULL_QUEUE_AI_ANALYZE: ${BULL_QUEUE_AI_ANALYZE:-ai.analyze}
@@ -130,8 +114,6 @@ services:
       INTERNAL_API_KEY: ${INTERNAL_API_KEY:-contractiq-docker-internal-api-key}
       WEB_URL: ${WEB_URL:-http://localhost:5173}
     depends_on:
-      mongodb:
-        condition: service_healthy
       redis:
         condition: service_healthy
     healthcheck:
@@ -154,7 +136,7 @@ services:
     environment:
       NODE_ENV: production
       NOTIFICATION_SERVICE_PORT: 4004
-      MONGODB_URI: mongodb://mongodb:27017
+      MONGODB_URI: ${MONGODB_URI}
       MONGODB_DB_NOTIFICATION: ${MONGODB_DB_NOTIFICATION:-contractiq_notification}
       REDIS_URL: redis://redis:6379
       BULL_QUEUE_NOTIFICATION_SEND: ${BULL_QUEUE_NOTIFICATION_SEND:-notification.send}
@@ -166,8 +148,6 @@ services:
       EMAIL_FROM_NAME: ${EMAIL_FROM_NAME:-ContractIQ AI}
       WEB_URL: ${WEB_URL:-http://localhost:5173}
     depends_on:
-      mongodb:
-        condition: service_healthy
       redis:
         condition: service_healthy
     healthcheck:
@@ -213,6 +193,5 @@ services:
       start_period: 25s
 
 volumes:
-  mongodb_data:
   redis_data:
   contract_uploads:
